@@ -5,9 +5,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
-
-
-
 contract NFTMarketplace {
 
     struct Sale {
@@ -38,6 +35,7 @@ contract NFTMarketplace {
     event SaleCreated(address indexed owner, address indexed addressOfAsset, uint256 indexed tokenId, uint256 numberOfAssets, uint256 priceOfAsset, address paymentToken, bool isERC1155, bool isERC721);
     event SaleUpdated(address indexed owner, address indexed addressOfAsset, uint256 indexed tokenId, uint256 numberOfAssets, uint256 priceOfAsset, address paymentToken);
     event Purchase(address indexed buyer, address indexed seller, address indexed addressOfAsset, uint256 tokenId, uint256 numberOfAssets, uint256 priceOfAsset, address paymentToken, uint256 fees);
+    event FeeWithdrawn(address indexed token, address indexed recreciever, uint256 amount);
 
     constructor(address _weth){
         marketPlaceOwner = msg.sender;
@@ -195,6 +193,23 @@ contract NFTMarketplace {
             _payment(paymentToken, sale.owner, msg.sender, price, sellerAmount, fee);
             IERC721(addressOfAsset).safeTransferFrom(sale.owner, msg.sender, tokenId,"");
             emit Purchase(msg.sender, sale.owner,addressOfAsset,tokenId,1,price,paymentToken,fee);
+        }
+
+        function withdrawFees(address token, uint256 amount) external {
+            uint256 balance = Fees[token];
+
+            require(msg.sender == marketPlaceOwner, "not owner");
+            require(amount > 0, "amount should be greater than 0");
+            require(balance >= amount,"invalid amount");
+            
+            if(token  == address(0)){
+                (bool success,) = payable(marketPlaceOwner).call{value: amount}("");
+                require(success, "ETH Withdraw fail");
+            } else {
+                IERC20(token).transfer(marketPlaceOwner, amount);
+            }
+
+            emit FeeWithdrawn(token, marketPlaceOwner, amount);
         }
 }
 
