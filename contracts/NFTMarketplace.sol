@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 
 
@@ -70,7 +71,7 @@ contract NFTMarketplace {
             }
     }
 
-    function createSale1155(
+    function createSale1155 (
         address addressOfAsset,
         uint256 tokenId,
         uint256 numberOfAssets,
@@ -111,7 +112,7 @@ contract NFTMarketplace {
             address addressOfAsset,
             uint256 tokenId,
             uint256 numberOfAssets
-        ) external {
+        ) external payable{
             Sale storage sale = Sales[addressOfAsset][tokenId];
 
             // checks
@@ -134,6 +135,66 @@ contract NFTMarketplace {
             _payment(paymentToken, sale.owner, msg.sender, price, sellerAmount, fee);
             IERC1155(addressOfAsset).safeTransferFrom(sale.owner, msg.sender, tokenId, numberOfAssets,"");
             emit Purchase(msg.sender, sale.owner,addressOfAsset,tokenId,numberOfAssets,price,paymentToken,fee);
+        }
+
+        function createSale721(
+        address addressOfAsset,
+        uint256 tokenId,
+        uint256 priceOfAsset,
+        address paymentToken
+        ) external {
+            IERC721 nft = IERC721(addressOfAsset);
+
+            // checks
+            require(nft.ownerOf(tokenId) == msg.sender, "not token owner");
+            require(nft.isApprovedForAll(msg.sender, address(this)) == true, "marketplace is not approvedd");
+            require(priceOfAsset > 0 ,"price should be greater than 0");
+
+            // effects
+            Sale storage sale = Sales[addressOfAsset][tokenId];
+
+            bool isUpdate = sale.owner != address(0);
+            
+            sale.owner = msg.sender;
+            sale.addressOfAsset = addressOfAsset;
+            sale.tokenId = tokenId;
+            sale.numberOfAssets = 1;
+            sale.priceOfAsset = priceOfAsset;
+            sale.paymentToken = paymentToken;
+            sale.isERC1155 = false;
+            sale.isERC721 = true;
+
+            // interaction
+            if (isUpdate){
+                emit SaleUpdated(msg.sender,addressOfAsset,tokenId,1,priceOfAsset, paymentToken);
+            } else {
+                emit SaleCreated(msg.sender,addressOfAsset,tokenId,1,priceOfAsset, paymentToken, false, true);
+            }
+            
+        }
+
+        function buySale721(
+            address addressOfAsset,
+            uint256 tokenId
+        ) external payable{
+            Sale storage sale = Sales[addressOfAsset][tokenId];
+
+            // checks
+            require(sale.owner != address(0),"sale does not exist");
+            require(sale.isERC721 != false, "not an ERC721 token");
+
+            // effects
+            uint256 price = sale.priceOfAsset * 1;
+            uint256 fee = (price * FEE_PERCENTAGE)/FEE_DENOMINATOR;
+            uint256 sellerAmount = price - fee;
+
+            delete Sales[addressOfAsset][tokenId];
+
+            // interaction
+            address paymentToken = _checkPayment(sale.paymentToken);
+            _payment(paymentToken, sale.owner, msg.sender, price, sellerAmount, fee);
+            IERC721(addressOfAsset).safeTransferFrom(sale.owner, msg.sender, tokenId,"");
+            emit Purchase(msg.sender, sale.owner,addressOfAsset,tokenId,1,price,paymentToken,fee);
         }
 }
 
