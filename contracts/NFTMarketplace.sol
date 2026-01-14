@@ -19,7 +19,7 @@ contract NFTMarketplace {
     }
 
     uint256 public constant FEE_PERCENTAGE = 55;
-    uint256 public constant FEE_DENOMINATOR = 1000;
+    uint256 public constant FEE_DENOMINATOR = 10000;
     address public immutable WETH;
 
     address public marketPlaceOwner;
@@ -51,13 +51,13 @@ contract NFTMarketplace {
         if(paymentToken == WETH){
             if (msg.value > 0){
                 require(msg.value == price, "incorrect eth ammount");
+
+                Fees[address(0)] += fee;
+                
                 (bool successful,) = seller.call{value: sellerAmount}("");
                 require(successful, "ETH transfer to seller failed");
-
-                (bool feeTransfer,) = address(this).call{value: fee}("");
-                require(feeTransfer, "ETH fee transfer unsucessful");
             } else {
-                Fees[paymentToken] += fee;
+                Fees[WETH] += fee;
                 IERC20(WETH).transferFrom(buyer,seller,sellerAmount);
                 IERC20(WETH).transferFrom(buyer, address(this),fee);
             }
@@ -65,7 +65,7 @@ contract NFTMarketplace {
                 require(msg.value == 0, "ETH not accepted for ERC20 token transfer");
                 Fees[paymentToken] += fee;
                 IERC20(paymentToken).transferFrom(buyer,seller,sellerAmount);
-                IERC20(WETH).transferFrom(buyer, address(this),fee);
+                IERC20(paymentToken).transferFrom(buyer, address(this),fee);
             }
     }
 
@@ -93,15 +93,15 @@ contract NFTMarketplace {
             sale.tokenId = tokenId;
             sale.numberOfAssets = numberOfAssets;
             sale.priceOfAsset = priceOfAsset;
-            sale.paymentToken = paymentToken;
+            sale.paymentToken = _checkPayment(paymentToken);
             sale.isERC1155 = true;
             sale.isERC721 = false;
 
             // interaction
             if (isUpdate){
-                emit SaleUpdated(msg.sender,addressOfAsset,tokenId,numberOfAssets,priceOfAsset, paymentToken);
+                emit SaleUpdated(msg.sender,addressOfAsset,tokenId,numberOfAssets,priceOfAsset, sale.paymentToken);
             } else {
-                emit SaleCreated(msg.sender,addressOfAsset,tokenId,numberOfAssets,priceOfAsset, paymentToken, true, false);
+                emit SaleCreated(msg.sender,addressOfAsset,tokenId,numberOfAssets,priceOfAsset, sale.paymentToken, true, false);
             }
             
         }
@@ -123,16 +123,18 @@ contract NFTMarketplace {
             uint256 fee = (price * FEE_PERCENTAGE)/FEE_DENOMINATOR;
             uint256 sellerAmount = price - fee;
 
+            address seller = sale.owner;
+            address paymentToken = _checkPayment(sale.paymentToken);
+
             sale.numberOfAssets -= numberOfAssets;
             if(sale.numberOfAssets == 0){
                 delete Sales[addressOfAsset][tokenId];
             } 
 
             // interaction
-            address paymentToken = _checkPayment(sale.paymentToken);
-            _payment(paymentToken, sale.owner, msg.sender, price, sellerAmount, fee);
-            IERC1155(addressOfAsset).safeTransferFrom(sale.owner, msg.sender, tokenId, numberOfAssets,"");
-            emit Purchase(msg.sender, sale.owner,addressOfAsset,tokenId,numberOfAssets,price,paymentToken,fee);
+            _payment(paymentToken, seller, msg.sender, price, sellerAmount, fee);
+            IERC1155(addressOfAsset).safeTransferFrom(seller, msg.sender, tokenId, numberOfAssets,"");
+            emit Purchase(msg.sender, seller,addressOfAsset,tokenId,numberOfAssets,price,paymentToken,fee);
         }
 
         function createSale721(
@@ -158,15 +160,15 @@ contract NFTMarketplace {
             sale.tokenId = tokenId;
             sale.numberOfAssets = 1;
             sale.priceOfAsset = priceOfAsset;
-            sale.paymentToken = paymentToken;
+            sale.paymentToken = _checkPayment(paymentToken);
             sale.isERC1155 = false;
             sale.isERC721 = true;
 
             // interaction
             if (isUpdate){
-                emit SaleUpdated(msg.sender,addressOfAsset,tokenId,1,priceOfAsset, paymentToken);
+                emit SaleUpdated(msg.sender,addressOfAsset,tokenId,1,priceOfAsset, sale.paymentToken);
             } else {
-                emit SaleCreated(msg.sender,addressOfAsset,tokenId,1,priceOfAsset, paymentToken, false, true);
+                emit SaleCreated(msg.sender,addressOfAsset,tokenId,1,priceOfAsset, sale.paymentToken, false, true);
             }
             
         }
@@ -186,22 +188,27 @@ contract NFTMarketplace {
             uint256 fee = (price * FEE_PERCENTAGE)/FEE_DENOMINATOR;
             uint256 sellerAmount = price - fee;
 
+            address seller = sale.owner;
+            address paymentToken = _checkPayment(sale.paymentToken);
+
             delete Sales[addressOfAsset][tokenId];
 
             // interaction
-            address paymentToken = _checkPayment(sale.paymentToken);
-            _payment(paymentToken, sale.owner, msg.sender, price, sellerAmount, fee);
-            IERC721(addressOfAsset).safeTransferFrom(sale.owner, msg.sender, tokenId,"");
-            emit Purchase(msg.sender, sale.owner,addressOfAsset,tokenId,1,price,paymentToken,fee);
+            _payment(paymentToken, seller, msg.sender, price, sellerAmount, fee);
+            IERC721(addressOfAsset).safeTransferFrom(seller, msg.sender, tokenId,"");
+            emit Purchase(msg.sender, seller,addressOfAsset,tokenId,1,price,paymentToken,fee);
         }
 
         function withdrawFees(address token, uint256 amount) external {
-            uint256 balance = Fees[token];
-
+            // checks
             require(msg.sender == marketPlaceOwner, "not owner");
             require(amount > 0, "amount should be greater than 0");
-            require(balance >= amount,"invalid amount");
-            
+            require(Fees[token] >= amount,"invalid amount");
+
+            //effects
+            Fees[token] -= amount;
+
+            // interaction
             if(token  == address(0)){
                 (bool success,) = payable(marketPlaceOwner).call{value: amount}("");
                 require(success, "ETH Withdraw fail");
@@ -211,5 +218,7 @@ contract NFTMarketplace {
 
             emit FeeWithdrawn(token, marketPlaceOwner, amount);
         }
+
+        receive() external payable {}
 }
 
