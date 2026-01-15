@@ -83,3 +83,5 @@ contract ERC20 is IERC20 {
         _burn(from, amount);
     }
 }
+
+contract COINS is ERC20("COINS","COIN",18) {}
